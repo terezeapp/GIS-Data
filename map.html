@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 600px;
+            width: 100%;
+        }
+
+        /* Custom Popup Styles */
+        .leaflet-popup-content-wrapper {
+            padding: 0 !important;
+            background-color: transparent !important;
+            box-shadow: none !important;
+        }
+
+        .leaflet-popup-content {
+            margin: 0 !important;
+            padding: 0 !important;
+            background-color: #c4a269;
+            color: #2a2a2b;
+            font-family: Arial, sans-serif;
+            max-width: 300px;
+            box-shadow: none !important;
+        }
+
+        .leaflet-popup-tip {
+            background: #f9f9f9 !important;
+        }
+
+        .leaflet-popup-close-button {
+            display: none;
+        }
+
+        .custom-popup {
+            padding: 0;
+            margin: 0;
+            background-color: #f9f9f9;
+            color: #2a2a2b;
+            font-size: 0.9em;
+        }
+
+        .custom-popup-header {
+            background-color: #c4a269;
+            color: #2a2a2b;
+            padding: 8px;
+            font-size: 1em;
+            font-weight: bold;
+            text-align: center;
+            margin: 0;
+        }
+
+        .custom-popup-content {
+            padding: 5px 10px;
+            margin: 0;
+        }
+
+        .custom-popup-content p {
+            margin: 4px 0;
+            line-height: 1.4em;
+        }
+
+        .custom-popup-content a {
+            color: #1a73e8;
+            text-decoration: underline;
+        }
+
+        .custom-popup-content a:hover {
+            font-weight: bold;
+            color: #0f5bb5;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        const mapboxToken = "pk.eyJ1IjoiamxpY2F0YTIzIiwiYSI6ImNsaXg4cjJmZzA0cmYzZnBlOG9vb3B0aDAifQ.8XPLDu56X5JTTPKyjhYGSw";
+        const map = L.map('map').setView([56.8796, 24.6032], 8);
+
+        L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/dark-v10/tiles/{z}/{x}/{y}?access_token=${mapboxToken}`, {
+            maxZoom: 18,
+            attribution: '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> contributors'
+        }).addTo(map);
+
+        let municipalityData = {};
+
+        function getPopupContent(name, info) {
+            let popupContent = `<div class="custom-popup">
+                <div class="custom-popup-header">${name} atbalsts</div>
+                <div class="custom-popup-content">`;
+
+            const fields = [
+                { label: 'Pabalsts bērna uzturam līdz 7 g.v.', value: info.Support_Under_7 },
+                { label: 'Pabalsts bērna uzturam 7-18g.v.', value: info.Support_7_to_18 },
+                { label: 'Apģērba un mīkstā inventāra ievietojot (vienreizējs)', value: info.Clothing_Support },
+                { label: 'Mācību materiāli', value: info.Educational_Materials },
+                { label: 'Bērna izglītībai un audzināšanai', value: info.Education_Support },
+                { label: 'Papildus atbalsts audžuģimene', value: info.Additional_Support },
+                { label: 'Citi', value: info.Other }
+            ];
+
+            fields.forEach(field => {
+                if (field.value && field.value !== "0" && field.value !== "0 €") {
+                    popupContent += `<p><span class="field-value">${field.value} €</span> ${field.label}</p>`;
+                }
+            });
+
+            if (info.Reference_Link) {
+                popupContent += `<a href="${info.Reference_Link}" target="_blank">https://likumi.lv</a>`;
+            }
+
+            popupContent += `</div></div>`;
+            return popupContent;
+        }
+
+        // Fetch data from Google Sheets using the provided API key
+        function fetchDataFromGoogleSheets() {
+            const sheetID = "1iKoP5XrV-f36Gq-UlGcDU23uxBomBDC8esjI35epEHY";
+            const sheetGID = "1614235168";
+            const apiKey = "AIzaSyByPe723U2q6HP6XHHiLVV06FLZCVWIokc";  // Your API Key
+            const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetID}/values/Sheet1?alt=json&key=${apiKey}`;
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    const rows = data.values;
+                    rows.slice(1).forEach(row => {
+                        const [
+                            municipality, supportUnder7, support7to18, clothingSupport, educationalMaterials,
+                            educationSupport, additionalSupport, other, referenceLink
+                        ] = row;
+
+                        municipalityData[municipality] = {
+                            Support_Under_7: supportUnder7,
+                            Support_7_to_18: support7to18,
+                            Clothing_Support: clothingSupport,
+                            Educational_Materials: educationalMaterials,
+                            Education_Support: educationSupport,
+                            Additional_Support: additionalSupport,
+                            Other: other,
+                            Reference_Link: referenceLink
+                        };
+                    });
+
+                    loadGeoJson();
+                })
+                .catch(error => console.error("Error loading Google Sheets data:", error));
+        }
+
+        function loadGeoJson() {
+            fetch("map.geojson")
+                .then(response => response.json())
+                .then(geoData => {
+                    L.geoJSON(geoData, {
+                        style: function () {
+                            return {
+                                color: "#FFFFFF",
+                                fillColor: "#FFFFFF",
+                                fillOpacity: 0,
+                                weight: 1
+                            };
+                        },
+                        onEachFeature: function (feature, layer) {
+                            const name = feature.properties.NOSAUKUMS;
+                            const info = municipalityData[name];
+
+                            if (info) {
+                                layer.bindPopup(getPopupContent(name, info));
+                            } else {
+                                layer.bindPopup(`<div class="custom-popup"><strong>${name}</strong><br>No data available.</div>`);
+                            }
+
+                            layer.on('mouseover', function () {
+                                layer.setStyle({ fillOpacity: 0.3 });
+                            });
+
+                            layer.on('mouseout', function () {
+                                layer.setStyle({ fillOpacity: 0 });
+                            });
+                        }
+                    }).addTo(map);
+                })
+                .catch(error => console.error("Error loading map.geojson:", error));
+        }
+
+        fetchDataFromGoogleSheets();
+    </script>
+</body>
+
+</html>
